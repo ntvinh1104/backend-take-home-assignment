@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
@@ -79,6 +80,30 @@ export const friendshipRequestRouter = router({
        * scenario for Question 3
        *  - Run `yarn test` to verify your answer
        */
+
+      const existFriendship = await ctx.db
+        .selectFrom('friendships')
+        .where('friendships.userId', '=', ctx.session.userId)
+        .where('friendships.friendUserId', '=', input.friendUserId)
+
+        .selectAll()
+        .limit(1)
+        .execute()
+
+      if (!!existFriendship && existFriendship.length > 0) {
+        if (
+          !!existFriendship[0] &&
+          existFriendship[0].status == FriendshipStatusSchema.Values['declined']
+        ) {
+          return ctx.db
+            .updateTable('friendships')
+            .set({ status: FriendshipStatusSchema.Values['requested'] })
+            .where('friendships.friendUserId', '=', input.friendUserId)
+            .where('friendships.userId', '=', ctx.session.userId)
+            .execute()
+        }
+      }
+
       return ctx.db
         .insertInto('friendships')
         .values({
@@ -117,12 +142,47 @@ export const friendshipRequestRouter = router({
          *  - https://kysely-org.github.io/kysely/classes/Kysely.html#insertInto
          *  - https://kysely-org.github.io/kysely/classes/Kysely.html#updateTable
          */
+
+        await t
+          .updateTable('friendships')
+          .set({
+            status: FriendshipStatusSchema.Values['accepted'],
+          })
+          .where('friendships.friendUserId', '=', ctx.session.userId)
+          .where('friendships.userId', '=', input.friendUserId)
+          .execute()
+
+        const friendShipData = await t
+          .selectFrom('friendships')
+          .where('friendships.friendUserId', '=', input.friendUserId)
+          .where('friendships.userId', '=', ctx.session.userId)
+          .selectAll()
+          .execute()
+
+        if (!!friendShipData && friendShipData.length > 0) {
+          await t
+            .updateTable('friendships')
+            .set({ status: FriendshipStatusSchema.Values['accepted'] })
+            .where('friendships.friendUserId', '=', input.friendUserId)
+            .where('friendships.userId', '=', ctx.session.userId)
+            .execute()
+        } else {
+          await t
+            .insertInto('friendships')
+            .values({
+              userId: ctx.session.userId,
+              friendUserId: input.friendUserId,
+              status: FriendshipStatusSchema.Values['accepted'],
+            })
+            .execute()
+        }
       })
     }),
 
   decline: procedure
     .use(canAnswerFriendshipRequest)
     .input(AnswerFriendshipRequestInputSchema)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     .mutation(async ({ ctx, input }) => {
       /**
        * Question 2: Implement api to decline a friendship request
@@ -137,5 +197,12 @@ export const friendshipRequestRouter = router({
        * Documentation references:
        *  - https://vitest.dev/api/#test-skip
        */
+
+      await ctx.db
+        .updateTable('friendships')
+        .set({ status: FriendshipStatusSchema.Values['declined'] })
+        .where('friendships.friendUserId', '=', ctx.session.userId)
+
+        .execute()
     }),
 })
